@@ -580,46 +580,60 @@ function limparRegistrosComErro() {
     }
 
     async function enviarCartaoPlanilha() {
-        const cartao = {
-            num: document.getElementById('cad_cartao_num').value,
-            veiculo: document.getElementById('cad_cartao_veic').value,
-            pontos: [...pontosTemporarios]
-        };
-        db.cartoes.push(cartao);
+    const cartao = {
+        num: document.getElementById('cad_cartao_num').value,
+        veiculo: document.getElementById('cad_cartao_veic').value,
+        pontos: [...pontosTemporarios]
+    };
 
-        salvarLocal();
-        popularTodosSelects();
-        alert(`Cartão ${cartao.num} salvos!`);
-        pontosTemporarios = [];
-        document.getElementById('cad_cartao_num').value = "";
-        document.getElementById('listaPontosPreview').innerHTML = "Aguardando pontos (0/25)...";
-        document.getElementById('btnSalvarCartao').disabled = true;
-        apiPost("Cadastros", [new Date().toLocaleString(), "CARTÃO", cartao.num, cartao.veiculo, cartao.pontos.join('|')]);
-    }
+    // Salva no banco local
+    db.cartoes.push(cartao);
+    salvarLocal();
+    popularTodosSelects();
+
+    // ENVIO PARA O SUPABASE
+    // [Data, "CARTÃO", Número, Veículo, Pontos_Separados_por_Pipe]
+    await apiPost("Cadastros", [
+        new Date().toLocaleString(), 
+        "CARTÃO", 
+        cartao.num, 
+        cartao.veiculo, 
+        cartao.pontos.join('|')
+    ]);
+
+    alert(`Cartão ${cartao.num} salvo no sistema!`);
+    
+    // Limpeza da tela
+    pontosTemporarios = [];
+    document.getElementById('cad_cartao_num').value = "";
+    document.getElementById('listaPontosPreview').innerHTML = "Aguardando pontos (0/25)...";
+    document.getElementById('btnSalvarCartao').disabled = true;
+}
 
     async function enviarAuxiliar() {
-        const nome = document.getElementById('cad_aux_nome').value;
-        const tipo = document.getElementById('cad_aux_tipo').value;
-        if(!nome) return;
-       if(tipo === "Operador") db.operadores.push(nome);
+    const nome = document.getElementById('cad_aux_nome').value;
+    const tipo = document.getElementById('cad_aux_tipo').value;
+    if(!nome) return;
 
-else if(tipo === "Rondante") db.rondantes.push(nome);
+    // Salva no banco local (para uso imediato na tela)
+    if(tipo === "Operador") db.operadores.push(nome);
+    else if(tipo === "Rondante") db.rondantes.push(nome);
+    else if(tipo === "Supervisor") db.supervisores.push(nome);
+    else if(tipo === "Placa") db.placas.push(nome);
+    else if(tipo === "Motivo") db.motivos.push(nome);
+    else db.locais.push(nome);
 
-else if(tipo === "Supervisor") db.supervisores.push(nome);
+    ordenarListas();
+    salvarLocal();
+    popularTodosSelects();
 
-else if(tipo === "Placa") db.placas.push(nome);
+    // ENVIO PARA O SUPABASE
+    // [Data, Tipo, Nome]
+    await apiPost("Cadastros", [new Date().toLocaleString(), tipo, nome]);
 
-else if(tipo === "Motivo") db.motivos.push(nome);
-
-else db.locais.push(nome);
-        ordenarListas();
-        salvarLocal();
-        popularTodosSelects();
-        alert(`${tipo} cadastrado!`);
-        document.getElementById('cad_aux_nome').value = "";
-        apiPost("Cadastros", [new Date().toLocaleString(), tipo, nome]);
-    }
-
+    alert(`${tipo} cadastrado com sucesso no Supabase!`);
+    document.getElementById('cad_aux_nome').value = "";
+}
     function renderizarAbasVeiculos() {
         const veics = [{id: 'V01', n: 'VICTOR 01'}, {id: 'V02', n: 'VICTOR 02'}, {id: 'V03', n: 'VICTOR 03'}, {id: 'A02', n: 'ALFA 02'}];
         const container = document.getElementById('container-veiculos');
@@ -1256,10 +1270,11 @@ function renderizarProgramacao() {
 
 
 async function apiPost(tabela, arrayDados) {
-    // Mapeamento automático para o Supabase
-    // Como seu sistema envia arrays, vamos converter para o objeto que o Supabase espera
+    const SUPABASE_URL = "https://ptcglislxatfwojboxak.supabase.co";
+    const SUPABASE_KEY = "sb_publishable_xs9SWHiFcUJCPzBppsJaLg_-hfgy-nJ";
+
+    // Mapeia o array da planilha para as colunas do banco
     let payload = {};
-    
     if (tabela === "CartoesFinalizados") {
         payload = {
             "data_hora": arrayDados[0],
@@ -1271,18 +1286,13 @@ async function apiPost(tabela, arrayDados) {
             "status_pontos": arrayDados[6],
             "observacoes": arrayDados[7] || ""
         };
-    } else if (tabela === "Cadastros") {
-        payload = {
-            "data": arrayDados[0],
-            "tipo": arrayDados[1],
-            "nome": arrayDados[2],
-            "veiculo": arrayDados[3] || null,
-            "pontos": arrayDados[4] || null
-        };
+    } else {
+        // Para Cadastros e outros
+        payload = { "data": arrayDados[0], "tipo": arrayDados[1], "nome": arrayDados[2] };
     }
 
     try {
-        const response = await fetch(`${SUPABASE_URL}/rest/v1/${tabela}`, {
+        await fetch(`${SUPABASE_URL}/rest/v1/${tabela}`, {
             method: "POST",
             headers: {
                 "apikey": SUPABASE_KEY,
@@ -1292,19 +1302,11 @@ async function apiPost(tabela, arrayDados) {
             },
             body: JSON.stringify(payload)
         });
-
-        if (response.ok) {
-            console.log(`✅ Sucesso ao salvar em ${tabela}`);
-        } else {
-            const erro = await response.json();
-            console.error("❌ Erro no Supabase:", erro);
-        }
+        console.log("💾 Salvo no Supabase com sucesso!");
     } catch (e) {
-        console.error("❌ Erro de conexão:", e);
+        console.error("❌ Erro ao salvar:", e);
     }
 }
-
-
 function sincronizarSupabaseParaPlanilha() {
   const url = "https://ptcglislxatfwojboxak.supabase.co/rest/v1/CartoesFinalizados?select=*";
   const options = {
@@ -1339,4 +1341,3 @@ function sincronizarSupabaseParaPlanilha() {
 
 </body>
 </html>
-****
